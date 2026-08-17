@@ -1,0 +1,109 @@
+#!/bin/sh
+
+
+uci -q get system.@imm_init[0] > /dev/null || \
+uci -q add system imm_init > /dev/null
+
+
+
+if ! uci -q get system.@imm_init[0].lang > /dev/null; then
+
+uci -q batch <<-EOF
+
+set luci.main.lang="auto"
+commit luci
+
+set system.@imm_init[0].lang="1"
+commit system
+
+EOF
+
+fi
+
+
+
+# 自动挂载
+
+uci set fstab.@global[0].anon_mount=1
+uci commit fstab
+
+
+
+# 删除无用状态页面
+
+rm -f /usr/lib/lua/luci/view/admin_status/index/mwan.htm
+rm -f /usr/lib/lua/luci/view/admin_status/index/linkease.htm
+
+
+
+# ip命令兼容
+
+ln -sf /sbin/ip /usr/bin/ip
+
+
+
+# root空密码
+
+sed -i 's#root:[^:]*:#root::#' /etc/shadow
+
+
+
+# 系统名称
+
+uci set system.@system[0].hostname='ImmortalWrt'
+
+uci set system.@system[0].timezone='CST-8'
+
+uci commit system
+
+
+
+# Argon默认主题
+
+uci set luci.main.mediaurlbase='/luci-static/argon'
+
+uci commit luci
+
+
+
+# 版本显示
+
+sed -i '/DISTRIB_REVISION/d' /etc/openwrt_release
+
+echo "DISTRIB_REVISION='25.12-custom'" >> /etc/openwrt_release
+
+
+sed -i '/DISTRIB_DESCRIPTION/d' /etc/openwrt_release
+
+echo "DISTRIB_DESCRIPTION='ImmortalWrt Custom Build'" >> /etc/openwrt_release
+
+
+
+# LuCI版本
+
+sed -i '/luciversion/d' /usr/lib/lua/luci/version.lua
+
+echo "luciversion ='25.12'" >> /usr/lib/lua/luci/version.lua
+
+
+
+# dnsmasq关闭日志
+
+sed -i '/log-facility/d' /etc/dnsmasq.conf
+
+echo "log-facility=/dev/null" >> /etc/dnsmasq.conf
+
+
+
+# 清理缓存
+
+rm -rf /tmp/luci-modulecache/
+
+rm -f /tmp/luci-indexcache
+
+
+
+chmod 0755 /etc/init.d/*
+
+
+exit 0
