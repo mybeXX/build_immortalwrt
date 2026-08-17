@@ -37,14 +37,18 @@ sed -i 's/OpenWrt/ImmortalWrt/g' package/base-files/files/bin/config_generate
 cp -f $GITHUB_WORKSPACE/banner package/base-files/files/etc/banner
 
 
-# Argon壁纸
-if [ -d "$GITHUB_WORKSPACE/argon" ]; then
+# Argon背景兼容
 
-    cp -rf \
-    $GITHUB_WORKSPACE/argon/* \
-    feeds/luci/themes/luci-theme-argon/
+mkdir -p feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/background
 
-fi
+cp -f \
+$GITHUB_WORKSPACE/argon/background/background.jpg \
+feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/background/background.jpg
+
+
+cp -f \
+$GITHUB_WORKSPACE/argon/background/background.jpg \
+feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/background.jpg
 
 
 # 默认设置
