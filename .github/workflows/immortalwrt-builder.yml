@@ -1,0 +1,222 @@
+name: immortalwrt-builder
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-25.12
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_BIN_DIR: true
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+  GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
+jobs:
+  build:
+
+    runs-on: ubuntu-22.04
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v4
+
+
+    - name: 检查编译环境
+      run: |
+        echo "CPU:"
+        nproc
+        echo "Memory:"
+        free -h
+        echo "Disk:"
+        df -h
+
+
+    - name: 安装 Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+
+    - name: 初始化环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/*
+        sudo -E apt-get update
+
+        sudo -E apt-get install -y \
+        build-essential \
+        clang \
+        flex \
+        bison \
+        gawk \
+        gettext \
+        gcc-multilib \
+        g++-multilib \
+        git \
+        make \
+        ncurses-dev \
+        unzip \
+        zlib1g-dev \
+        file \
+        wget \
+        curl \
+        python3 \
+        rsync \
+        ccache
+
+        sudo timedatectl set-timezone "$TZ"
+
+
+    - name: 下载源码
+      run: |
+        git clone --depth 1 \
+        -b $REPO_BRANCH \
+        $REPO_URL \
+        openwrt
+
+
+    - name: 恢复缓存
+      uses: actions/cache@v4
+      with:
+        path: |
+          openwrt/dl
+          ~/.ccache
+          openwrt/staging_dir
+          openwrt/build_dir
+        key: immortalwrt-${{ env.REPO_BRANCH }}-${{ runner.arch }}
+        restore-keys: |
+          immortalwrt-${{ env.REPO_BRANCH }}-
+
+
+    - name: 配置CCache
+      run: |
+        mkdir -p ~/.ccache
+
+        cat > ~/.ccache/ccache.conf <<EOF
+        max_size = 5G
+        compression = true
+        EOF
+
+        echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+        echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+
+
+    - name: 加载feeds
+      run: |
+        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf
+
+        chmod +x $DIY_P1_SH
+
+        cd openwrt
+
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+
+
+    - name: 更新feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+
+
+    - name: 安装feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds install -a
+
+
+    - name: 加载配置
+      run: |
+        [ -e files ] && mv files openwrt/files
+
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+
+        chmod +x $DIY_P2_SH
+
+        cd openwrt
+
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+
+
+    - name: SSH
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: github.event.inputs.ssh == 'true'
+      env:
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
+
+    - name: 下载软件包
+      run: |
+        cd openwrt
+
+        make defconfig
+
+        make download -j$(nproc)
+
+        find dl -size -1024c -delete
+
+
+    - name: 编译固件
+      run: |
+
+        cd openwrt
+
+        export CCACHE_DIR=$HOME/.ccache
+        export USE_CCACHE=1
+
+        make -j$(nproc) || make -j1 V=s
+
+
+    - name: 整理固件
+      run: |
+        cd openwrt/bin/targets/*/*
+
+        rm -rf packages
+
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+
+
+    - name: 上传固件
+      uses: actions/upload-artifact@v4
+      with:
+        name: ImmortalWrt-firmware
+        path: ${{ env.FIRMWARE }}
+
+
+    - name: 发布Release
+      if: env.UPLOAD_RELEASE == 'true'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: immortalwrt-${{ github.run_number }}
+        files: ${{ env.FIRMWARE }}/*
+        body: |
+          ImmortalWrt 25.12 x86_64 EFI
+
+          CPU:
+          Intel Celeron N3150
+
+          LAN:
+          10.0.0.1/24
+
+          Root:
+          empty password
+
+
+    - name: 删除旧记录
+      uses: Mattraks/delete-workflow-runs@main
+      with:
+        retain_days: 3
+        keep_minimum_runs: 3
+        token: ${{ env.GITHUB_TOKEN }}
