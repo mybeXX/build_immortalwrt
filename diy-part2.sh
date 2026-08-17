@@ -1,134 +1,194 @@
 #!/bin/bash
 
 #
-# ImmortalWrt Custom DIY Part2
+# OpenWrt DIY script part 2
+# After Update feeds
 #
 
-
-echo "
-
-# Argon主题
-CONFIG_PACKAGE_luci-theme-argon=y
+set -e
 
 
+echo "===== 开始执行 DIY part2 ====="
+
+
+#
+# 设置软件包
+# 使用 scripts/config 避免破坏 .config
+#
+
+echo "===== 设置 LuCI 主题 ====="
+
+./scripts/config set PACKAGE_luci-theme-argon
+
+
+#
+# 禁用不需要的软件
+#
+
+echo "===== 清理无用组件 ====="
+
+# Docker
+./scripts/config unset PACKAGE_docker || true
+./scripts/config unset PACKAGE_dockerd || true
+./scripts/config unset PACKAGE_docker-compose || true
+
+
+# 开发工具
+./scripts/config unset PACKAGE_gdb || true
+./scripts/config unset PACKAGE_git || true
+./scripts/config unset PACKAGE_gcc || true
+./scripts/config unset PACKAGE_g++ || true
+
+
+#
 # TurboACC
-CONFIG_PACKAGE_luci-app-turboacc=y
+#
+# 如果你的 .config 已经选择，这里不强制
+#
+
+echo "===== TurboACC 保留配置 ====="
+
+# ./scripts/config set PACKAGE_luci-app-turboacc
 
 
-# 网卡驱动
-CONFIG_PACKAGE_kmod-e1000=y
-CONFIG_PACKAGE_kmod-e1000e=y
-CONFIG_PACKAGE_kmod-igb=y
-CONFIG_PACKAGE_kmod-igbvf=y
-CONFIG_PACKAGE_kmod-igc=y
+#
+# 修改默认 LAN IP
+#
 
-CONFIG_PACKAGE_kmod-r8101=y
-CONFIG_PACKAGE_kmod-r8169=y
-CONFIG_PACKAGE_kmod-r8125=y
-CONFIG_PACKAGE_kmod-r8126=y
+echo "===== 修改默认 LAN ====="
 
-
-# 网络工具
-CONFIG_PACKAGE_ethtool=y
-
-
-" >> .config
-
-
-
-# =========================
-# 默认 LAN IP
-# =========================
-
-sed -i 's/192.168.1.1/10.0.0.1/g' \
+sed -i 's/192\.168\.1\.1/10.0.0.1/g' \
 package/base-files/files/bin/config_generate
 
 
+#
+# 修改默认主机名
+#
 
-# =========================
-# 保留 ImmortalWrt 名称
-# =========================
-
-sed -i 's/OpenWrt/ImmortalWrt/g' \
+sed -i 's/ImmortalWrt/ImmortalWrt/g' \
 package/base-files/files/bin/config_generate
 
 
+#
+# 默认密码为空
+#
 
-# =========================
+echo "===== 设置默认空密码 ====="
+
+sed -i 's/root::0:0:99999:7:::/root::0:0:99999:7:::/g' \
+package/base-files/files/etc/shadow 2>/dev/null || true
+
+
+
+#
 # Banner
-# =========================
+#
+
+echo "===== 设置系统 Banner ====="
 
 if [ -f "$GITHUB_WORKSPACE/banner" ]; then
-
-cp -f \
-$GITHUB_WORKSPACE/banner \
-package/base-files/files/etc/banner
-
+    cp -f \
+    "$GITHUB_WORKSPACE/banner" \
+    package/base-files/files/etc/banner
 fi
 
 
 
-# =========================
-# Argon 自定义壁纸
-# =========================
+#
+# Argon 壁纸
+#
 
-if [ -f "$GITHUB_WORKSPACE/argon/background/background.jpg" ]; then
-
-
-mkdir -p \
-feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/background
+echo "===== 设置 Argon 壁纸 ====="
 
 
-cp -f \
-$GITHUB_WORKSPACE/argon/background/background.jpg \
-feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/background/background.jpg
+ARGON_PATH="feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon"
 
 
-
-# 兼容部分 Argon 版本
-
-cp -f \
-$GITHUB_WORKSPACE/argon/background/background.jpg \
-feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/background.jpg
+if [ -d "$ARGON_PATH" ]; then
 
 
-fi
+    mkdir -p \
+    "$ARGON_PATH/background"
 
 
+    if [ -f "$GITHUB_WORKSPACE/argon/background/background.jpg" ]; then
 
-# =========================
-# 默认设置
-# =========================
+        cp -f \
+        "$GITHUB_WORKSPACE/argon/background/background.jpg" \
+        "$ARGON_PATH/background/background.jpg"
 
-if [ -f "$GITHUB_WORKSPACE/99-default-settings" ]; then
-
-
-mkdir -p \
-package/base-files/files/etc/uci-defaults
-
-
-cp -f \
-$GITHUB_WORKSPACE/99-default-settings \
-package/base-files/files/etc/uci-defaults/99-default-settings
+    fi
 
 
 fi
 
 
 
-# =========================
-# 删除无用主题
-# =========================
+#
+# Argon 图标资源
+#
 
-sed -i '/CONFIG_PACKAGE_luci-theme-material=y/d' .config
-
-sed -i '/CONFIG_PACKAGE_luci-theme-openwrt-2020=y/d' .config
+if [ -d "$GITHUB_WORKSPACE/argon" ]; then
 
 
+    mkdir -p \
+    "$ARGON_PATH/img"
 
-# =========================
-# 清理 LuCI缓存
-# =========================
 
-rm -rf tmp/luci-modulecache
-rm -f tmp/luci-indexcache
+    [ -f "$GITHUB_WORKSPACE/argon/img/bg1.jpg" ] && \
+    cp -f \
+    "$GITHUB_WORKSPACE/argon/img/bg1.jpg" \
+    "$ARGON_PATH/img/bg1.jpg"
+
+
+    [ -f "$GITHUB_WORKSPACE/argon/img/argon.svg" ] && \
+    cp -f \
+    "$GITHUB_WORKSPACE/argon/img/argon.svg" \
+    "$ARGON_PATH/img/argon.svg"
+
+
+fi
+
+
+
+#
+# ImmortalWrt版本显示
+#
+
+echo "===== 修改版本显示 ====="
+
+
+if [ -f package/emortal/default-settings/files/99-default-settings ]; then
+
+    cp -f \
+    "$GITHUB_WORKSPACE/99-default-settings" \
+    package/emortal/default-settings/files/99-default-settings \
+    || true
+
+fi
+
+
+
+#
+# DNS日志关闭
+#
+
+if [ -f /etc/dnsmasq.conf ]; then
+
+    sed -i '/log-facility/d' /etc/dnsmasq.conf
+    echo "log-facility=/dev/null" >> /etc/dnsmasq.conf
+
+fi
+
+
+
+#
+# 清理缓存
+#
+
+rm -rf /tmp/luci-modulecache
+rm -f /tmp/luci-indexcache
+
+
+
+echo "===== DIY part2 完成 ====="
