@@ -42,23 +42,28 @@ echo "===== Disable Docker ====="
 
 
 sed -i \
-'/CONFIG_PACKAGE_docker=/d' \
+'/CONFIG_PACKAGE_.*docker.*/d' \
 .config
 
 
 sed -i \
-'/CONFIG_PACKAGE_dockerd=/d' \
+'/CONFIG_PACKAGE_containerd=/d' \
 .config
 
 
 sed -i \
-'/CONFIG_PACKAGE_docker-compose=/d' \
+'/CONFIG_PACKAGE_runc=/d' \
 .config
 
 
-echo "# CONFIG_PACKAGE_docker is not set" >> .config
-echo "# CONFIG_PACKAGE_dockerd is not set" >> .config
-echo "# CONFIG_PACKAGE_docker-compose is not set" >> .config
+cat >> .config <<EOF
+# CONFIG_PACKAGE_docker is not set
+# CONFIG_PACKAGE_dockerd is not set
+# CONFIG_PACKAGE_docker-compose is not set
+# CONFIG_PACKAGE_luci-app-dockerman is not set
+# CONFIG_PACKAGE_containerd is not set
+# CONFIG_PACKAGE_runc is not set
+EOF
 
 
 
