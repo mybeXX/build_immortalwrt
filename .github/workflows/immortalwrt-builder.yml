@@ -81,49 +81,40 @@ jobs:
 
 
 
-    - name: 初始化环境
-
+        - name: 初始化环境
       env:
-
         DEBIAN_FRONTEND: noninteractive
-
 
       run: |
 
-
         sudo rm -rf /etc/apt/sources.list.d/*
-
 
         sudo -E apt-get update
 
 
-
         sudo -E apt-get install -y \
-
-        build-essential \
-        clang \
-        flex \
-        bison \
-        gawk \
-        gettext \
-        gcc-multilib \
-        g++-multilib \
-        git \
-        make \
-        ncurses-dev \
-        unzip \
-        zlib1g-dev \
-        file \
-        wget \
-        curl \
-        python3 \
-        rsync \
-        ccache
-
+          build-essential \
+          clang \
+          flex \
+          bison \
+          gawk \
+          gettext \
+          gcc-multilib \
+          g++-multilib \
+          git \
+          make \
+          ncurses-dev \
+          unzip \
+          zlib1g-dev \
+          file \
+          wget \
+          curl \
+          python3 \
+          rsync \
+          ccache
 
 
         sudo timedatectl set-timezone "$TZ"
-
 
 
 
