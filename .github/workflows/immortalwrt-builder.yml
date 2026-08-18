@@ -33,11 +33,9 @@ env:
 
 jobs:
 
-
   build:
 
     runs-on: ubuntu-22.04
-
 
 
     steps:
@@ -49,8 +47,7 @@ jobs:
 
 
 
-
-    - name: 检查编译环境
+    - name: 检查环境
 
       run: |
 
@@ -65,8 +62,6 @@ jobs:
 
 
 
-
-
     - name: 安装 Go
 
       uses: actions/setup-go@v5
@@ -77,23 +72,17 @@ jobs:
 
 
 
-
-
     - name: 初始化环境
 
       env:
 
         DEBIAN_FRONTEND: noninteractive
 
-
       run: |
-
 
         sudo rm -rf /etc/apt/sources.list.d/*
 
-
         sudo -E apt-get update
-
 
 
         sudo -E apt-get install -y \
@@ -118,21 +107,13 @@ jobs:
           ccache
 
 
-
         sudo timedatectl set-timezone "$TZ"
-
-
-
-
-
 
 
 
     - name: 下载源码
 
-
       run: |
-
 
         git clone --depth 1 \
           -b $REPO_BRANCH \
@@ -141,31 +122,21 @@ jobs:
 
 
 
-
-
-
-
     - name: 恢复缓存
-
 
       uses: actions/cache@v4
 
-
       with:
-
 
         path: |
 
           openwrt/dl
-
           ~/.ccache
-
 
 
         key:
 
           immortalwrt-${{ env.REPO_BRANCH }}-${{ runner.arch }}-${{ github.sha }}
-
 
 
         restore-keys: |
@@ -176,28 +147,19 @@ jobs:
 
 
 
-
-
-
-
     - name: 配置CCache
-
 
       run: |
 
-
         mkdir -p ~/.ccache
-
 
 
         cat > ~/.ccache/ccache.conf <<EOF
 
         max_size = 5G
-
         compression = true
 
         EOF
-
 
 
         echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
@@ -206,149 +168,140 @@ jobs:
 
 
 
-
-
-
-
-
     - name: 加载feeds
-
 
       run: |
 
-
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf
-
 
 
         chmod +x $DIY_P1_SH
 
 
-
         cd openwrt
-
 
 
         $GITHUB_WORKSPACE/$DIY_P1_SH
 
 
 
-
-
-
-
     - name: 更新feeds
-
 
       run: |
 
-
         cd openwrt
-
 
         ./scripts/feeds update -a
 
 
 
-
-
-
-
     - name: 安装feeds
-
 
       run: |
 
-
         cd openwrt
-
 
         ./scripts/feeds install -a
 
 
 
-
-
-
-
     - name: 加载配置
-
 
       run: |
 
-
         [ -e files ] && mv files openwrt/files
-
 
 
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
 
 
-
         cd openwrt
 
 
+        echo "========== BEFORE DIY CHECK =========="
 
-        echo "========== BEFORE DIY CONFIG CHECK =========="
-
-        grep -iE "docker|container|runc" .config || echo "No Docker config"
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|mihomo)' .config || true
 
 
 
         chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
 
 
-
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
 
 
+        echo "========== AFTER DIY CHECK =========="
 
-        echo "========== AFTER DIY CONFIG CHECK =========="
-
-        grep -iE "docker|container|runc" .config || echo "No Docker config"
-
-
-
-
-
-
-
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|mihomo)' .config || true
 
     - name: SSH
 
-
       uses: P3TERX/ssh2actions@v1.0.0
-
 
       if: github.event.inputs.ssh == 'true'
 
-
       env:
-
 
         GITHUB_TOKEN: ${{ secrets.TOKEN }}
 
 
 
 
-
-
-
-
     - name: 下载软件包
 
-
       run: |
-
 
         cd openwrt
 
 
 
-        echo "========== BEFORE DEFCONFIG CHECK =========="
+        echo "========== CHECK PACKAGE SOURCE =========="
 
-        grep -iE "docker|container|runc" .config || echo "No Docker config"
+
+        echo "---- mihomo-alpha ----"
+
+        grep -R "mihomo-alpha" feeds/ package/ 2>/dev/null | head -30 || true
+
+
+        echo "---- mihomo-meta ----"
+
+        grep -R "mihomo-meta" feeds/ package/ 2>/dev/null | head -30 || true
+
+
+
+
+        echo "========== DISABLE MIHOMO CONFLICT =========="
+
+
+
+        sed -i '/CONFIG_PACKAGE_mihomo-alpha=/d' .config
+
+        sed -i '/CONFIG_PACKAGE_mihomo-meta=/d' .config
+
+
+
+        echo "# CONFIG_PACKAGE_mihomo-alpha is not set" >> .config
+
+        echo "# CONFIG_PACKAGE_mihomo-meta is not set" >> .config
+
+
+
+
+        echo "========== DOCKER CHECK BEFORE DEFCONFIG =========="
+
+
+
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|docker-compose|luci-app-docker|luci-app-dockerman|containerd|runc)=' .config || echo "Docker disabled"
+
+
+
+
+        echo "========== MIHOMO CHECK BEFORE DEFCONFIG =========="
+
+
+
+        grep -E '^CONFIG_PACKAGE_(mihomo|mihomo-alpha|mihomo-meta)=' .config || echo "Mihomo disabled"
 
 
 
@@ -360,7 +313,13 @@ jobs:
 
         echo "========== AFTER DEFCONFIG CHECK =========="
 
-        grep -iE "docker|container|runc" .config || echo "No Docker config"
+
+
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|docker-compose|luci-app-docker|luci-app-dockerman|containerd|runc)=' .config || echo "Docker disabled"
+
+
+
+        grep -E '^CONFIG_PACKAGE_(mihomo|mihomo-alpha|mihomo-meta)=' .config || echo "Mihomo disabled"
 
 
 
@@ -370,7 +329,6 @@ jobs:
 
 
         find dl -size -1024c -delete
-
 
 
 
@@ -389,18 +347,22 @@ jobs:
 
 
 
-        echo "========== FINAL BUILD CHECK =========="
-
-        grep -iE "docker|container|runc" .config || echo "No Docker config"
+        echo "========== FINAL CONFIG CHECK =========="
 
 
 
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|mihomo|mihomo-alpha|mihomo-meta)' .config || true
 
-        echo "========== CLEAN DOCKER BUILD =========="
+
+
+
+        echo "========== CLEAN OLD BUILD =========="
 
 
 
         rm -rf build_dir/target-*/dockerd* || true
+
+        rm -rf build_dir/target-*/docker* || true
 
         rm -rf build_dir/target-*/containerd* || true
 
@@ -417,7 +379,6 @@ jobs:
 
 
         make -j$(nproc) || make -j1 V=s
-
 
 
 
@@ -465,7 +426,6 @@ jobs:
 
 
 
-
     - name: 发布Release
 
 
@@ -481,9 +441,7 @@ jobs:
         tag_name: immortalwrt-${{ github.run_number }}
 
 
-
         files: ${{ env.FIRMWARE }}/*
-
 
 
         body: |
@@ -498,7 +456,6 @@ jobs:
 
           Root:
           empty password
-
 
 
 
