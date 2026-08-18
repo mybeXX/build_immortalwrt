@@ -1,107 +1,208 @@
 #!/bin/bash
 #
-# https://github.com/P3TERX/Actions-OpenWrt
-# File name: diy-part2.sh
-# Description: OpenWrt DIY script part 2 (After Update feeds)
-#
-# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
+# ImmortalWrt DIY Part2
+# After Update feeds
 #
 
+set -e
 
-# 移除要替换的包
-#rm -rf feeds/packages/net/v2ray-geodata
 
-# Git稀疏克隆，只克隆指定目录到本地
-function git_sparse_clone() {
-  branch="$1" repourl="$2" && shift 2
-  git clone --depth=1 -b $branch --single-branch --filter=blob:none --sparse $repourl
-  repodir=$(echo $repourl | awk -F '/' '{print $(NF)}')
-  cd $repodir && git sparse-checkout set $@
-  mv -f $@ ../package
-  cd .. && rm -rf $repodir
-}
+echo "========== DIY PART2 START =========="
 
-# 添加额外插件
-#git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
-# 添加主题
-#git clone -b js --single-branch https://github.com/gngpp/luci-theme-design package/luci-theme-design
-# git clone https://github.com/derisamedia/luci-theme-alpha.git package/luci-theme-alpha
+# ==============================
+# 添加 OpenClash
+# ==============================
 
-# 添加测速插件
-# git clone https://github.com/sirpdboy/netspeedtest.git package/netspeedtest
-# 添加 万能推送
-# git clone https://github.com/zzsj0928/luci-app-pushbot package/luci-app-pushbot
-# 添加关机插件
-#git clone https://github.com/VPN-V2Ray/luci-app-poweroff.git package/luci-app-poweroff
-# 添加passwall2
-# git clone https://github.com/xiaorouji/openwrt-passwall2.git package/luci-app-passwall2
-# 添加应用过滤
-# git clone  https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
-#加入turboacc
-curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh
-chmod -R 777 add_turboacc.sh
+echo "添加 OpenClash"
+
+rm -rf package/luci-app-openclash
+
+git clone --depth=1 \
+https://github.com/vernesong/OpenClash.git \
+package/luci-app-openclash
+
+
+
+# ==============================
+# 添加 TurboACC
+# ==============================
+
+echo "添加 TurboACC"
+
+
+curl -sSL \
+https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh \
+-o add_turboacc.sh
+
+
+chmod +x add_turboacc.sh
+
+
+# x86 不开启 SFE
 bash add_turboacc.sh --no-sfe
 
 
-echo "
-# 主题
-#CONFIG_PACKAGE_luci-theme-design=y
 
+# ==============================
+# 写入配置
+# ==============================
+
+cat >> .config <<EOF
+
+
+# Argon主题
 CONFIG_PACKAGE_luci-theme-argon=y
 
-#CONFIG_PACKAGE_luci-theme-material=y
 
-#CONFIG_PACKAGE_luci-theme-openwrt-2020=y
+# OpenClash
+CONFIG_PACKAGE_luci-app-openclash=y
 
-#CONFIG_PACKAGE_luci-theme-alpha=y
 
-# 测速插件
-#CONFIG_PACKAGE_luci-app-netspeedtest=y
-
-# 万能推送
-#CONFIG_PACKAGE_luci-app-pushbot=y
-
-# TurboAcc
+# TurboACC
 CONFIG_PACKAGE_luci-app-turboacc=y
 
-# 应用过滤
-# CONFIG_PACKAGE_luci-app-oaf=y
 
-" >> .config
+# TCP BBR
+CONFIG_PACKAGE_kmod-tcp-bbr=y
 
-# 修改默认IP
-sed -i 's/192.168.1.1/10.0.0.1/g' package/base-files/files/bin/config_generate
 
-# 修改默认子网掩码
-sed -i 's/255.255.255.0/255.255.252.0/g' package/base-files/files/bin/config_generate
+# FullCone NAT
+CONFIG_PACKAGE_nft-fullcone=y
 
-# 修改默认主题
-#sed -i 's/luci-theme-openwrt-2020/luci-theme-alpha/g' feeds/luci/collections/luci/Makefile
 
-# 修改主机名
-sed -i 's/ImmortalWrt/OpenWrt/g' package/base-files/files/bin/config_generate
+# irqbalance
+CONFIG_PACKAGE_irqbalance=y
 
-# 修改Ping 默认网址 immortalwrt.org
-#cat feeds/luci/modules/luci-mod-admin-full/luasrc/view/admin_network/diagnostics.htm
 
-# 修改系统信息
-cp -f $GITHUB_WORKSPACE/99-default-settings package/emortal/default-settings/files/99-default-settings
-cp -f $GITHUB_WORKSPACE/banner package/base-files/files/etc/banner
+# 常用工具
+CONFIG_PACKAGE_htop=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_wget=y
+CONFIG_PACKAGE_bash=y
+CONFIG_PACKAGE_nano=y
 
-# 修改主题背景
-cp -f $GITHUB_WORKSPACE/argon/img/bg1.jpg feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/img/bg1.jpg
-cp -f $GITHUB_WORKSPACE/argon/img/argon.svg feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/img/argon.svg
-cp -f $GITHUB_WORKSPACE/argon/favicon.ico feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/favicon.ico
-cp -f $GITHUB_WORKSPACE/argon/icon/android-icon-192x192.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/android-icon-192x192.png
-cp -f $GITHUB_WORKSPACE/argon/icon/apple-icon-144x144.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/apple-icon-144x144.png
-cp -f $GITHUB_WORKSPACE/argon/icon/apple-icon-60x60.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/apple-icon-60x60.png
-cp -f $GITHUB_WORKSPACE/argon/icon/apple-icon-72x72.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/apple-icon-72x72.png
-cp -f $GITHUB_WORKSPACE/argon/icon/favicon-16x16.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/favicon-16x16.png
-cp -f $GITHUB_WORKSPACE/argon/icon/favicon-32x32.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/favicon-32x32.png
-cp -f $GITHUB_WORKSPACE/argon/icon/favicon-96x96.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/favicon-96x96.png
-cp -f $GITHUB_WORKSPACE/argon/icon/ms-icon-144x144.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/ms-icon-144x144.png
-#cp -f $GITHUB_WORKSPACE/argon/favicon.ico package/luci-theme-design/htdocs/luci-static/design/favicon.ico
+
+EOF
+
+
+
+# ==============================
+# 修改默认LAN地址
+# ==============================
+
+echo "修改 LAN IP"
+
+
+sed -i \
+'s/192.168.1.1/10.0.0.1/g' \
+package/base-files/files/bin/config_generate
+
+
+
+# ==============================
+# root空密码
+# ==============================
+
+
+echo "设置root空密码"
+
+
+mkdir -p files/etc/uci-defaults
+
+
+cat > files/etc/uci-defaults/99-default-settings <<'EOF'
+
+#!/bin/sh
+
+passwd -d root
+
+exit 0
+
+EOF
+
+
+chmod +x files/etc/uci-defaults/99-default-settings
+
+
+
+# ==============================
+# 系统banner
+# ==============================
+
+
+if [ -f "$GITHUB_WORKSPACE/banner" ]; then
+
+cp -f \
+$GITHUB_WORKSPACE/banner \
+package/base-files/files/etc/banner
+
+fi
+
+
+
+# ==============================
+# Argon资源替换
+# ==============================
+
+
+ARGON_DIR="feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon"
+
+
+if [ -d "$ARGON_DIR" ]; then
+
+
+echo "替换 Argon资源"
+
+
+cp -f \
+$GITHUB_WORKSPACE/argon/img/bg1.jpg \
+$ARGON_DIR/img/bg1.jpg || true
+
+
+cp -f \
+$GITHUB_WORKSPACE/argon/img/argon.svg \
+$ARGON_DIR/img/argon.svg || true
+
+
+cp -f \
+$GITHUB_WORKSPACE/argon/favicon.ico \
+$ARGON_DIR/favicon.ico || true
+
+
+cp -f \
+$GITHUB_WORKSPACE/argon/icon/*.png \
+$ARGON_DIR/icon/ 2>/dev/null || true
+
+
+fi
+
+
+
+# ==============================
+# 默认主题
+# ==============================
+
+mkdir -p files/etc/uci-defaults
+
+
+cat > files/etc/uci-defaults/98-theme <<'EOF'
+
+#!/bin/sh
+
+
+uci set luci.main.mediaurlbase='/luci-static/argon'
+
+uci commit luci
+
+
+exit 0
+
+EOF
+
+
+chmod +x files/etc/uci-defaults/98-theme
+
+
+
+echo "========== DIY PART2 END =========="
