@@ -203,7 +203,9 @@ if [ -f "$GITHUB_WORKSPACE/99-default-settings" ]; then
 
 fi
 
+echo "===== AFTER DIY CHECK ====="
 
+grep -iE "docker|container|runc" .config || true
 
 #
 # 清理LuCI缓存
