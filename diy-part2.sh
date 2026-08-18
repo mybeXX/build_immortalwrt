@@ -1,219 +1,481 @@
-#!/bin/bash
+name: immortalwrt-builder
 
-#
-# ImmortalWrt DIY Part2
-# After Update feeds
-#
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
 
-set -e
 
+env:
 
-echo "===== DIY part2 start ====="
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-25.12
 
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
 
-#
-# 修改 .config
-#
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
 
-echo "===== Modify config ====="
+  UPLOAD_BIN_DIR: true
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
 
+  TZ: Asia/Shanghai
 
-# Argon主题
+  GITHUB_TOKEN: ${{ secrets.TOKEN }}
 
-if grep -q "CONFIG_PACKAGE_luci-theme-argon" .config; then
 
-    sed -i \
-    's/^CONFIG_PACKAGE_luci-theme-argon=.*/CONFIG_PACKAGE_luci-theme-argon=y/' \
-    .config
 
-else
+jobs:
 
-    echo "CONFIG_PACKAGE_luci-theme-argon=y" >> .config
+  build:
 
-fi
+    runs-on: ubuntu-22.04
 
 
+    steps:
 
-#
-# 删除 Docker
-#
 
-echo "===== Disable Docker ====="
+    - name: Checkout
 
+      uses: actions/checkout@v4
 
-sed -i \
-'/CONFIG_PACKAGE_.*docker.*/d' \
-.config
 
 
-sed -i \
-'/CONFIG_PACKAGE_containerd=/d' \
-.config
+    - name: 检查环境
 
+      run: |
 
-sed -i \
-'/CONFIG_PACKAGE_runc=/d' \
-.config
+        echo "CPU:"
+        nproc
 
+        echo "Memory:"
+        free -h
 
-cat >> .config <<EOF
-# CONFIG_PACKAGE_docker is not set
-# CONFIG_PACKAGE_dockerd is not set
-# CONFIG_PACKAGE_docker-compose is not set
-# CONFIG_PACKAGE_luci-app-dockerman is not set
-# CONFIG_PACKAGE_containerd is not set
-# CONFIG_PACKAGE_runc is not set
-EOF
+        echo "Disk:"
+        df -h
 
 
 
-#
-# 删除多余主题
-#
+    - name: 安装 Go
 
-echo "===== Remove extra themes ====="
+      uses: actions/setup-go@v5
 
+      with:
 
-sed -i \
-'/CONFIG_PACKAGE_luci-theme-material=/d' \
-.config
+        go-version: '1.22'
 
 
-sed -i \
-'/CONFIG_PACKAGE_luci-theme-openwrt-2020=/d' \
-.config
 
+    - name: 初始化环境
 
+      env:
 
-#
-# 修改默认IP
-#
+        DEBIAN_FRONTEND: noninteractive
 
-echo "===== Set LAN IP ====="
+      run: |
 
+        sudo rm -rf /etc/apt/sources.list.d/*
 
-sed -i \
-'s/192\.168\.1\.1/10.0.0.1/g' \
-package/base-files/files/bin/config_generate
+        sudo -E apt-get update
 
 
+        sudo -E apt-get install -y \
+          build-essential \
+          clang \
+          flex \
+          bison \
+          gawk \
+          gettext \
+          gcc-multilib \
+          g++-multilib \
+          git \
+          make \
+          ncurses-dev \
+          unzip \
+          zlib1g-dev \
+          file \
+          wget \
+          curl \
+          python3 \
+          rsync \
+          ccache
 
-#
-# 保留 ImmortalWrt 名称
-#
 
-echo "===== Keep ImmortalWrt ====="
+        sudo timedatectl set-timezone "$TZ"
 
 
-sed -i \
-'s/OpenWrt/ImmortalWrt/g' \
-package/base-files/files/bin/config_generate
 
+    - name: 下载源码
 
+      run: |
 
-#
-# banner
-#
+        git clone --depth 1 \
+          -b $REPO_BRANCH \
+          $REPO_URL \
+          openwrt
 
-echo "===== Copy banner ====="
 
 
-if [ -f "$GITHUB_WORKSPACE/banner" ]; then
+    - name: 恢复缓存
 
-    cp -f \
-    "$GITHUB_WORKSPACE/banner" \
-    package/base-files/files/etc/banner
+      uses: actions/cache@v4
 
-fi
+      with:
 
+        path: |
 
+          openwrt/dl
+          ~/.ccache
 
-#
-# Argon 壁纸
-#
 
-echo "===== Copy Argon background ====="
+        key:
 
+          immortalwrt-${{ env.REPO_BRANCH }}-${{ runner.arch }}-${{ github.sha }}
 
-ARGON_DIR="feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon"
 
+        restore-keys: |
 
-if [ -f "$GITHUB_WORKSPACE/argon/background/background.jpg" ]; then
+          immortalwrt-${{ env.REPO_BRANCH }}-${{ runner.arch }}-
 
+          immortalwrt-${{ env.REPO_BRANCH }}-
 
-    mkdir -p \
-    "$ARGON_DIR/background"
 
 
-    cp -f \
-    "$GITHUB_WORKSPACE/argon/background/background.jpg" \
-    "$ARGON_DIR/background/background.jpg"
+    - name: 配置CCache
 
+      run: |
 
+        mkdir -p ~/.ccache
 
-    # 兼容旧版 Argon
 
-    cp -f \
-    "$GITHUB_WORKSPACE/argon/background/background.jpg" \
-    "$ARGON_DIR/background.jpg"
+        cat > ~/.ccache/ccache.conf <<EOF
 
+        max_size = 5G
+        compression = true
 
-fi
+        EOF
 
 
+        echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
 
-#
-# Argon 图标资源
-#
+        echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
-if [ -d "$GITHUB_WORKSPACE/argon/icon" ]; then
 
 
-    mkdir -p \
-    "$ARGON_DIR/icon"
+    - name: 加载feeds
 
+      run: |
 
-    cp -rf \
-    "$GITHUB_WORKSPACE/argon/icon/"* \
-    "$ARGON_DIR/icon/"
+        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf
 
 
-fi
+        chmod +x $DIY_P1_SH
 
 
+        cd openwrt
 
-#
-# 调用默认设置
-#
 
-echo "===== Install default settings ====="
+        $GITHUB_WORKSPACE/$DIY_P1_SH
 
 
-if [ -f "$GITHUB_WORKSPACE/99-default-settings" ]; then
 
+    - name: 更新feeds
 
-    mkdir -p \
-    package/base-files/files/etc/uci-defaults
+      run: |
 
+        cd openwrt
 
-    cp -f \
-    "$GITHUB_WORKSPACE/99-default-settings" \
-    package/base-files/files/etc/uci-defaults/99-default-settings
+        ./scripts/feeds update -a
 
 
-fi
 
-echo "===== AFTER DIY CHECK ====="
+    - name: 安装feeds
 
-grep -iE "docker|container|runc" .config || true
+      run: |
 
-#
-# 清理LuCI缓存
-#
+        cd openwrt
 
-rm -rf /tmp/luci-modulecache
-rm -f /tmp/luci-indexcache
+        ./scripts/feeds install -a
 
 
 
-echo "===== DIY part2 finish ====="
+    - name: 加载配置
+
+      run: |
+
+        [ -e files ] && mv files openwrt/files
+
+
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+
+
+        cd openwrt
+
+
+        echo "========== BEFORE DIY CHECK =========="
+
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|mihomo)' .config || true
+
+
+
+        chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
+
+
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+
+
+
+        echo "========== AFTER DIY CHECK =========="
+
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|mihomo)' .config || true
+
+    - name: SSH
+
+      uses: P3TERX/ssh2actions@v1.0.0
+
+      if: github.event.inputs.ssh == 'true'
+
+      env:
+
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
+
+
+
+    - name: 下载软件包
+
+      run: |
+
+        cd openwrt
+
+
+
+        echo "========== CHECK PACKAGE SOURCE =========="
+
+
+        echo "---- mihomo-alpha ----"
+
+        grep -R "mihomo-alpha" feeds/ package/ 2>/dev/null | head -30 || true
+
+
+        echo "---- mihomo-meta ----"
+
+        grep -R "mihomo-meta" feeds/ package/ 2>/dev/null | head -30 || true
+
+
+
+
+        echo "========== DISABLE MIHOMO CONFLICT =========="
+
+
+
+        sed -i '/CONFIG_PACKAGE_mihomo-alpha=/d' .config
+
+        sed -i '/CONFIG_PACKAGE_mihomo-meta=/d' .config
+
+
+
+        echo "# CONFIG_PACKAGE_mihomo-alpha is not set" >> .config
+
+        echo "# CONFIG_PACKAGE_mihomo-meta is not set" >> .config
+
+
+
+
+        echo "========== DOCKER CHECK BEFORE DEFCONFIG =========="
+
+
+
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|docker-compose|luci-app-docker|luci-app-dockerman|containerd|runc)=' .config || echo "Docker disabled"
+
+
+
+
+        echo "========== MIHOMO CHECK BEFORE DEFCONFIG =========="
+
+
+
+        grep -E '^CONFIG_PACKAGE_(mihomo|mihomo-alpha|mihomo-meta)=' .config || echo "Mihomo disabled"
+
+
+
+
+        make defconfig
+
+
+
+
+        echo "========== AFTER DEFCONFIG CHECK =========="
+
+
+
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|docker-compose|luci-app-docker|luci-app-dockerman|containerd|runc)=' .config || echo "Docker disabled"
+
+
+
+        grep -E '^CONFIG_PACKAGE_(mihomo|mihomo-alpha|mihomo-meta)=' .config || echo "Mihomo disabled"
+
+
+
+
+        make download -j$(nproc)
+
+
+
+        find dl -size -1024c -delete
+
+
+
+
+
+
+
+    - name: 编译固件
+
+
+      run: |
+
+
+        cd openwrt
+
+
+
+
+        echo "========== FINAL CONFIG CHECK =========="
+
+
+
+        grep -E '^CONFIG_PACKAGE_(docker|dockerd|mihomo|mihomo-alpha|mihomo-meta)' .config || true
+
+
+
+
+        echo "========== CLEAN OLD BUILD =========="
+
+
+
+        rm -rf build_dir/target-*/dockerd* || true
+
+        rm -rf build_dir/target-*/docker* || true
+
+        rm -rf build_dir/target-*/containerd* || true
+
+        rm -rf build_dir/target-*/runc* || true
+
+
+
+
+        export CCACHE_DIR=$HOME/.ccache
+
+        export USE_CCACHE=1
+
+
+
+
+        make -j$(nproc) || make -j1 V=s
+
+
+
+
+
+
+
+    - name: 整理固件
+
+
+      run: |
+
+
+        cd openwrt/bin/targets/*/*
+
+
+        rm -rf packages
+
+
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+
+
+
+
+
+
+
+    - name: 上传固件
+
+
+      uses: actions/upload-artifact@v4
+
+
+      with:
+
+
+        name: ImmortalWrt-firmware
+
+
+        path: ${{ env.FIRMWARE }}
+
+
+
+
+
+
+
+    - name: 发布Release
+
+
+      if: env.UPLOAD_RELEASE == 'true'
+
+
+      uses: softprops/action-gh-release@v2
+
+
+      with:
+
+
+        tag_name: immortalwrt-${{ github.run_number }}
+
+
+        files: ${{ env.FIRMWARE }}/*
+
+
+        body: |
+
+          ImmortalWrt 25.12 x86_64 EFI
+
+          CPU:
+          Intel Celeron N3150
+
+          LAN:
+          10.0.0.1/24
+
+          Root:
+          empty password
+
+
+
+
+
+
+
+    - name: 删除旧记录
+
+
+      uses: Mattraks/delete-workflow-runs@main
+
+
+      with:
+
+
+        retain_days: 3
+
+
+        keep_minimum_runs: 3
+
+
+        token: ${{ env.GITHUB_TOKEN }}
