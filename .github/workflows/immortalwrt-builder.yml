@@ -11,8 +11,10 @@ on:
 
 
 env:
+
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: openwrt-25.12
+
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
 
@@ -24,26 +26,36 @@ env:
   UPLOAD_RELEASE: true
 
   TZ: Asia/Shanghai
+
   GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
 
 
 jobs:
 
+
   build:
 
+
     runs-on: ubuntu-22.04
+
 
 
     steps:
 
 
+
     - name: Checkout
+
       uses: actions/checkout@v4
 
 
 
+
     - name: 检查编译环境
+
       run: |
+
         echo "CPU:"
         nproc
 
@@ -55,25 +67,39 @@ jobs:
 
 
 
+
+
     - name: 安装 Go
+
       uses: actions/setup-go@v5
+
       with:
+
         go-version: '1.22'
 
 
 
+
+
     - name: 初始化环境
+
       env:
+
         DEBIAN_FRONTEND: noninteractive
+
 
       run: |
 
+
         sudo rm -rf /etc/apt/sources.list.d/*
+
 
         sudo -E apt-get update
 
 
+
         sudo -E apt-get install -y \
+
         build-essential \
         clang \
         flex \
@@ -95,19 +121,29 @@ jobs:
         ccache
 
 
+
         sudo timedatectl set-timezone "$TZ"
+
+
 
 
 
 
     - name: 下载源码
 
+
       run: |
 
+
         git clone --depth 1 \
+
         -b $REPO_BRANCH \
+
         $REPO_URL \
+
         openwrt
+
+
 
 
 
@@ -115,19 +151,34 @@ jobs:
 
     - name: 恢复缓存
 
+
       uses: actions/cache@v4
+
 
       with:
 
+
         path: |
+
           openwrt/dl
+
           ~/.ccache
 
-        key: immortalwrt-${{ env.REPO_BRANCH }}-${{ runner.arch }}-${{ github.sha }}
+
+
+        key:
+
+          immortalwrt-${{ env.REPO_BRANCH }}-${{ runner.arch }}-${{ github.sha }}
+
+
 
         restore-keys: |
+
           immortalwrt-${{ env.REPO_BRANCH }}-${{ runner.arch }}-
+
           immortalwrt-${{ env.REPO_BRANCH }}-
+
+
 
 
 
@@ -135,17 +186,22 @@ jobs:
 
     - name: 配置CCache
 
+
       run: |
 
+
         mkdir -p ~/.ccache
+
 
 
         cat > ~/.ccache/ccache.conf <<EOF
 
         max_size = 5G
+
         compression = true
 
         EOF
+
 
 
         echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
@@ -162,13 +218,17 @@ jobs:
 
       run: |
 
+
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf
+
 
 
         chmod +x $DIY_P1_SH
 
 
+
         cd openwrt
+
 
 
         $GITHUB_WORKSPACE/$DIY_P1_SH
@@ -183,6 +243,7 @@ jobs:
 
       run: |
 
+
         cd openwrt
 
 
@@ -192,10 +253,12 @@ jobs:
 
 
 
+
     - name: 安装feeds
 
 
       run: |
+
 
         cd openwrt
 
@@ -207,24 +270,46 @@ jobs:
 
 
 
+
     - name: 加载配置
 
 
       run: |
 
+
         [ -e files ] && mv files openwrt/files
+
 
 
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
 
 
-        chmod +x $DIY_P2_SH
-
 
         cd openwrt
 
 
+
+        echo "========== BEFORE DIY CONFIG CHECK =========="
+
+        grep -iE "docker|container|runc" .config || echo "No Docker config"
+
+
+
+        chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
+
+
+
         $GITHUB_WORKSPACE/$DIY_P2_SH
+
+
+
+
+
+        echo "========== AFTER DIY CONFIG CHECK =========="
+
+        grep -iE "docker|container|runc" .config || echo "No Docker config"
+
+
 
 
 
@@ -242,7 +327,9 @@ jobs:
 
       env:
 
+
         GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
 
 
 
@@ -260,14 +347,21 @@ jobs:
 
 
 
+        echo "========== BEFORE DEFCONFIG CHECK =========="
+
+
+        grep -iE "docker|container|runc" .config || echo "No Docker config"
+
+
+
         make defconfig
 
 
 
-        echo "===== FINAL CONFIG CHECK ====="
+        echo "========== AFTER DEFCONFIG CHECK =========="
 
 
-        grep -iE "docker|container|runc" .config || true
+        grep -iE "docker|container|runc" .config || echo "No Docker config"
 
 
 
@@ -276,6 +370,7 @@ jobs:
 
 
         find dl -size -1024c -delete
+
 
 
 
@@ -293,7 +388,14 @@ jobs:
 
 
 
-        echo "===== Clean Docker leftovers ====="
+        echo "========== FINAL BUILD CHECK =========="
+
+
+        grep -iE "docker|container|runc" .config || echo "No Docker config"
+
+
+
+        echo "========== REMOVE OLD DOCKER BUILD =========="
 
 
 
@@ -305,6 +407,8 @@ jobs:
 
 
 
+
+
         export CCACHE_DIR=$HOME/.ccache
 
         export USE_CCACHE=1
@@ -312,6 +416,7 @@ jobs:
 
 
         make -j$(nproc) || make -j1 V=s
+
 
 
 
@@ -359,6 +464,7 @@ jobs:
 
 
 
+
     - name: 发布Release
 
 
@@ -374,7 +480,9 @@ jobs:
         tag_name: immortalwrt-${{ github.run_number }}
 
 
+
         files: ${{ env.FIRMWARE }}/*
+
 
 
         body: |
@@ -389,6 +497,7 @@ jobs:
 
           Root:
           empty password
+
 
 
 
