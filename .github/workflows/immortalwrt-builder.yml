@@ -5,477 +5,147 @@ on:
   workflow_dispatch:
     inputs:
       ssh:
-        description: 'SSH connection to Actions'
+        description: '是否开启 SSH 调试'
         required: false
         default: 'false'
 
-
 env:
-
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-25.12
-
+  REPO_BRANCH: v24.10.4
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
-
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-
   UPLOAD_BIN_DIR: true
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
-
   TZ: Asia/Shanghai
-
   GITHUB_TOKEN: ${{ secrets.TOKEN }}
 
-
-
 jobs:
-
   build:
-
     runs-on: ubuntu-22.04
 
-
     steps:
+    - name: 准备完成
+      uses: actions/checkout@main
 
-
-    - name: Checkout
-
-      uses: actions/checkout@v4
-
-
-
-    - name: 检查环境
-
-      run: |
-
-        echo "CPU:"
-        nproc
-
-        echo "Memory:"
-        free -h
-
-        echo "Disk:"
-        df -h
-
-
-
-    - name: 安装 Go
-
-      uses: actions/setup-go@v5
-
-      with:
-
-        go-version: '1.22'
-
-
-
-    - name: 初始化环境
-
+    - name: 初始化编译环境
       env:
-
         DEBIAN_FRONTEND: noninteractive
-
       run: |
-
-        sudo rm -rf /etc/apt/sources.list.d/*
-
-        sudo -E apt-get update
-
-
-        sudo -E apt-get install -y \
-          build-essential \
-          clang \
-          flex \
-          bison \
-          gawk \
-          gettext \
-          gcc-multilib \
-          g++-multilib \
-          git \
-          make \
-          ncurses-dev \
-          unzip \
-          zlib1g-dev \
-          file \
-          wget \
-          curl \
-          python3 \
-          rsync \
-          ccache
-
-
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev rename
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
 
-
-
-    - name: 下载源码
-
+    - name: 克隆源码
       run: |
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-        git clone --depth 1 \
-          -b $REPO_BRANCH \
-          $REPO_URL \
-          openwrt
-
-
-
-    - name: 恢复缓存
-
-      uses: actions/cache@v4
-
+    - name: 缓存编译过程 (ccache & dl)
+      uses: actions/cache@v3
       with:
-
         path: |
-
+          openwrt/.ccache
           openwrt/dl
-          ~/.ccache
-
-
-        key:
-
-          immortalwrt-${{ env.REPO_BRANCH }}-${{ runner.arch }}-${{ github.sha }}
-
-
+        key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('**/diy-part*.sh', '.config') }}
         restore-keys: |
+          ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-
 
-          immortalwrt-${{ env.REPO_BRANCH }}-${{ runner.arch }}-
-
-          immortalwrt-${{ env.REPO_BRANCH }}-
-
-
-
-    - name: 配置CCache
-
+    - name: 加载自定义 feeds
       run: |
-
-        mkdir -p ~/.ccache
-
-
-        cat > ~/.ccache/ccache.conf <<EOF
-
-        max_size = 5G
-        compression = true
-
-        EOF
-
-
-        echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
-
-        echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-
-
-
-    - name: 加载feeds
-
-      run: |
-
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf
-
-
         chmod +x $DIY_P1_SH
-
-
         cd openwrt
-
-
         $GITHUB_WORKSPACE/$DIY_P1_SH
-
-
-
-    - name: 更新feeds
-
-      run: |
-
-        cd openwrt
-
         ./scripts/feeds update -a
-
-
-
-    - name: 安装feeds
-
-      run: |
-
-        cd openwrt
-
         ./scripts/feeds install -a
+        ./scripts/feeds install -a # 二次安装确保依赖补全
 
-
-
-    - name: 加载配置
-
+    - name: 整合配置 (.config)
       run: |
-
-        [ -e files ] && mv files openwrt/files
-
-
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-
-
         cd openwrt
-
-
-        echo "========== BEFORE DIY CHECK =========="
-
-        grep -E '^CONFIG_PACKAGE_(docker|dockerd|mihomo)' .config || true
-
-
-
+        # 1. 下载官方 24.10.4 基础配置（保证基础依赖不丢）
+        curl -L https://immortalwrt.kyarucloud.moe/releases/24.10.4/targets/x86/64/config.buildinfo -o .config
+        
+        # 2. 追加你的个人 .config 配置（覆盖官方设置）
+        if [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ]; then
+          cat $GITHUB_WORKSPACE/$CONFIG_FILE >> .config
+          echo "已合并个人 .config 配置"
+        fi
+        
+        # 3. 运行 DIY 脚本
         chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
-
-
         $GITHUB_WORKSPACE/$DIY_P2_SH
-
-
-
-        echo "========== AFTER DIY CHECK =========="
-
-        grep -E '^CONFIG_PACKAGE_(docker|dockerd|mihomo)' .config || true
-
-    - name: SSH
-
-      uses: P3TERX/ssh2actions@v1.0.0
-
-      if: github.event.inputs.ssh == 'true'
-
-      env:
-
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
-
-
-
-
-    - name: 下载软件包
-
-      run: |
-
-        cd openwrt
-
-
-
-        echo "========== CHECK PACKAGE SOURCE =========="
-
-
-        echo "---- mihomo-alpha ----"
-
-        grep -R "mihomo-alpha" feeds/ package/ 2>/dev/null | head -30 || true
-
-
-        echo "---- mihomo-meta ----"
-
-        grep -R "mihomo-meta" feeds/ package/ 2>/dev/null | head -30 || true
-
-
-
-
-        echo "========== DISABLE MIHOMO CONFLICT =========="
-
-
-
-        sed -i '/CONFIG_PACKAGE_mihomo-alpha=/d' .config
-
-        sed -i '/CONFIG_PACKAGE_mihomo-meta=/d' .config
-
-
-
-        echo "# CONFIG_PACKAGE_mihomo-alpha is not set" >> .config
-
-        echo "# CONFIG_PACKAGE_mihomo-meta is not set" >> .config
-
-
-
-
-        echo "========== DOCKER CHECK BEFORE DEFCONFIG =========="
-
-
-
-        grep -E '^CONFIG_PACKAGE_(docker|dockerd|docker-compose|luci-app-docker|luci-app-dockerman|containerd|runc)=' .config || echo "Docker disabled"
-
-
-
-
-        echo "========== MIHOMO CHECK BEFORE DEFCONFIG =========="
-
-
-
-        grep -E '^CONFIG_PACKAGE_(mihomo|mihomo-alpha|mihomo-meta)=' .config || echo "Mihomo disabled"
-
-
-
-
+        
+        # 4. 启用 ccache 支持
+        echo "CONFIG_CCACHE=y" >> .config
+        
+        # 5. 自动补全缺失依赖
         make defconfig
 
+    - name: SSH 连接到 Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
 
-
-
-        echo "========== AFTER DEFCONFIG CHECK =========="
-
-
-
-        grep -E '^CONFIG_PACKAGE_(docker|dockerd|docker-compose|luci-app-docker|luci-app-dockerman|containerd|runc)=' .config || echo "Docker disabled"
-
-
-
-        grep -E '^CONFIG_PACKAGE_(mihomo|mihomo-alpha|mihomo-meta)=' .config || echo "Mihomo disabled"
-
-
-
-
-        make download -j$(nproc)
-
-
-
-        find dl -size -1024c -delete
-
-
-
-
-
-
+    - name: 下载软件包
+      id: package
+      run: |
+        cd openwrt
+        make download -j16 || make download -j1 V=s
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
     - name: 编译固件
-
-
+      id: compile
       run: |
-
-
         cd openwrt
+        export CCACHE_DIR=$PWD/.ccache
+        ccache -M 5G
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> ${GITHUB_OUTPUT}
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
 
-
-
-
-        echo "========== FINAL CONFIG CHECK =========="
-
-
-
-        grep -E '^CONFIG_PACKAGE_(docker|dockerd|mihomo|mihomo-alpha|mihomo-meta)' .config || true
-
-
-
-
-        echo "========== CLEAN OLD BUILD =========="
-
-
-
-        rm -rf build_dir/target-*/dockerd* || true
-
-        rm -rf build_dir/target-*/docker* || true
-
-        rm -rf build_dir/target-*/containerd* || true
-
-        rm -rf build_dir/target-*/runc* || true
-
-
-
-
-        export CCACHE_DIR=$HOME/.ccache
-
-        export USE_CCACHE=1
-
-
-
-
-        make -j$(nproc) || make -j1 V=s
-
-
-
-
-
-
-
-    - name: 整理固件
-
-
+    - name: 整理固件文件
+      id: organize
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-
-
         cd openwrt/bin/targets/*/*
-
-
         rm -rf packages
-
-
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> ${GITHUB_OUTPUT}
 
-
-
-
-
-
-
-    - name: 上传固件
-
-
-      uses: actions/upload-artifact@v4
-
-
+    - name: 上传固件目录 (Artifacts)
+      uses: actions/upload-artifact@main
+      if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-
-
-        name: ImmortalWrt-firmware
-
-
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
-
-
-
-
-
-
-    - name: 发布Release
-
-
-      if: env.UPLOAD_RELEASE == 'true'
-
-
+    - name: 自动发布到 Releases
       uses: softprops/action-gh-release@v2
-
-
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
       with:
-
-
-        tag_name: immortalwrt-${{ github.run_number }}
-
-
+        tag_name: Build_${{ env.REPO_BRANCH }}_${{ env.FILE_DATE }}
+        body: |
+          🚀 编译完成！
+          🌳 源码: ${{ env.REPO_URL }}
+          📌 版本: ${{ env.REPO_BRANCH }} (基于 24.10.4 官方底座)
+          ⏱️ 时间: ${{ env.FILE_DATE }}
+          👤 用户名: root | 密码: 空
         files: ${{ env.FIRMWARE }}/*
 
-
-        body: |
-
-          ImmortalWrt 25.12 x86_64 EFI
-
-          CPU:
-          Intel Celeron N3150
-
-          LAN:
-          10.0.0.1/24
-
-          Root:
-          empty password
-
-
-
-
-
-
-
-    - name: 删除旧记录
-
-
+    - name: 删除过旧运行记录
       uses: Mattraks/delete-workflow-runs@main
-
-
       with:
-
-
-        retain_days: 3
-
-
+        retain_days: 1
         keep_minimum_runs: 3
-
-
-        token: ${{ env.GITHUB_TOKEN }}
