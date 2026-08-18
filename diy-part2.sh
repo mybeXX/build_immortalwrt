@@ -1,352 +1,107 @@
 #!/bin/bash
-
 #
-# ImmortalWrt DIY Part2
-# After Update feeds
+# https://github.com/P3TERX/Actions-OpenWrt
+# File name: diy-part2.sh
+# Description: OpenWrt DIY script part 2 (After Update feeds)
 #
-
-set -e
-
-
-echo "===== DIY part2 start ====="
-
-
-
+# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
 #
-# 修改配置
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
 #
 
-echo "===== Modify config ====="
 
+# 移除要替换的包
+#rm -rf feeds/packages/net/v2ray-geodata
 
+# Git稀疏克隆，只克隆指定目录到本地
+function git_sparse_clone() {
+  branch="$1" repourl="$2" && shift 2
+  git clone --depth=1 -b $branch --single-branch --filter=blob:none --sparse $repourl
+  repodir=$(echo $repourl | awk -F '/' '{print $(NF)}')
+  cd $repodir && git sparse-checkout set $@
+  mv -f $@ ../package
+  cd .. && rm -rf $repodir
+}
 
-CONFIG_FILE=".config"
+# 添加额外插件
+#git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
+# 添加主题
+#git clone -b js --single-branch https://github.com/gngpp/luci-theme-design package/luci-theme-design
+# git clone https://github.com/derisamedia/luci-theme-alpha.git package/luci-theme-alpha
 
+# 添加测速插件
+# git clone https://github.com/sirpdboy/netspeedtest.git package/netspeedtest
+# 添加 万能推送
+# git clone https://github.com/zzsj0928/luci-app-pushbot package/luci-app-pushbot
+# 添加关机插件
+#git clone https://github.com/VPN-V2Ray/luci-app-poweroff.git package/luci-app-poweroff
+# 添加passwall2
+# git clone https://github.com/xiaorouji/openwrt-passwall2.git package/luci-app-passwall2
+# 添加应用过滤
+# git clone  https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
+#加入turboacc
+curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh
+chmod -R 777 add_turboacc.sh
+bash add_turboacc.sh --no-sfe
 
-#
-# 强制关闭 Docker
-#
 
-echo "===== Disable Docker ====="
+echo "
+# 主题
+#CONFIG_PACKAGE_luci-theme-design=y
 
+CONFIG_PACKAGE_luci-theme-argon=y
 
+#CONFIG_PACKAGE_luci-theme-material=y
 
-for pkg in \
-docker \
-dockerd \
-docker-compose \
-luci-app-docker \
-luci-app-dockerman \
-containerd \
-runc
+#CONFIG_PACKAGE_luci-theme-openwrt-2020=y
 
-do
+#CONFIG_PACKAGE_luci-theme-alpha=y
 
-    sed -i "/CONFIG_PACKAGE_${pkg}=/d" "$CONFIG_FILE"
+# 测速插件
+#CONFIG_PACKAGE_luci-app-netspeedtest=y
 
-    echo "# CONFIG_PACKAGE_${pkg} is not set" >> "$CONFIG_FILE"
+# 万能推送
+#CONFIG_PACKAGE_luci-app-pushbot=y
 
-done
+# TurboAcc
+CONFIG_PACKAGE_luci-app-turboacc=y
 
+# 应用过滤
+# CONFIG_PACKAGE_luci-app-oaf=y
 
+" >> .config
 
-
-
-#
-# 禁止 mihomo 冲突
-#
-
-echo "===== Disable mihomo conflict ====="
-
-
-
-sed -i '/CONFIG_PACKAGE_mihomo-alpha=/d' "$CONFIG_FILE"
-
-sed -i '/CONFIG_PACKAGE_mihomo-meta=/d' "$CONFIG_FILE"
-
-
-
-echo "# CONFIG_PACKAGE_mihomo-alpha is not set" >> "$CONFIG_FILE"
-
-echo "# CONFIG_PACKAGE_mihomo-meta is not set" >> "$CONFIG_FILE"
-
-
-
-
-
-
-
-#
-# Argon主题
-#
-
-echo "===== Enable Argon ====="
-
-
-
-if grep -q "^CONFIG_PACKAGE_luci-theme-argon=" "$CONFIG_FILE"
-then
-
-    sed -i \
-    's/^CONFIG_PACKAGE_luci-theme-argon=.*/CONFIG_PACKAGE_luci-theme-argon=y/' \
-    "$CONFIG_FILE"
-
-else
-
-    echo "CONFIG_PACKAGE_luci-theme-argon=y" >> "$CONFIG_FILE"
-
-fi
-
-
-
-
-
-
-
-#
-# 删除多余主题
-#
-
-echo "===== Remove extra themes ====="
-
-
-
-for theme in \
-luci-theme-material \
-luci-theme-openwrt-2020
-
-do
-
-    sed -i "/CONFIG_PACKAGE_${theme}=/d" "$CONFIG_FILE"
-
-    echo "# CONFIG_PACKAGE_${theme} is not set" >> "$CONFIG_FILE"
-
-done
-
-
-
-
-
-
-#
 # 修改默认IP
-#
-
-echo "===== Set LAN IP ====="
-
-
-
-CONFIG_GENERATE="package/base-files/files/bin/config_generate"
-
-
-if [ -f "$CONFIG_GENERATE" ]
-then
-
-    sed -i \
-    's/192\.168\.1\.1/10.0.0.1/g' \
-    "$CONFIG_GENERATE"
-
-fi
-
-
-
-
-
-
-
-#
-# 保留 ImmortalWrt 名称
-#
-
-echo "===== Keep ImmortalWrt ====="
-
-
-
-if [ -f "$CONFIG_GENERATE" ]
-then
-
-    sed -i \
-    's/OpenWrt/ImmortalWrt/g' \
-    "$CONFIG_GENERATE"
-
-fi
-
-
-
-
-
-
-
-
-#
-# banner
-#
-
-echo "===== Install banner ====="
-
-
-
-if [ -f "$GITHUB_WORKSPACE/banner" ]
-then
-
-    mkdir -p package/base-files/files/etc
-
-
-    cp -f \
-    "$GITHUB_WORKSPACE/banner" \
-    package/base-files/files/etc/banner
-
-fi
-
-
-
-
-
-
-
-#
-# Argon资源
-#
-
-echo "===== Install Argon resources ====="
-
-
-
-ARGON_DIR="feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon"
-
-
-
-
-if [ -d "feeds/luci/themes/luci-theme-argon" ]
-then
-
-
-
-    mkdir -p "$ARGON_DIR"
-
-
-
-    #
-    # 壁纸
-    #
-
-    if [ -f "$GITHUB_WORKSPACE/argon/background/background.jpg" ]
-    then
-
-
-        mkdir -p "$ARGON_DIR/background"
-
-
-        cp -f \
-        "$GITHUB_WORKSPACE/argon/background/background.jpg" \
-        "$ARGON_DIR/background/background.jpg"
-
-
-
-        cp -f \
-        "$GITHUB_WORKSPACE/argon/background/background.jpg" \
-        "$ARGON_DIR/background.jpg"
-
-
-    fi
-
-
-
-
-
-    #
-    # 图标
-    #
-
-    if [ -d "$GITHUB_WORKSPACE/argon/icon" ]
-    then
-
-
-        mkdir -p "$ARGON_DIR/icon"
-
-
-        cp -rf \
-        "$GITHUB_WORKSPACE/argon/icon/"* \
-        "$ARGON_DIR/icon/"
-
-
-    fi
-
-
-fi
-
-
-
-
-
-
-
-#
-# 默认设置
-#
-
-echo "===== Install default settings ====="
-
-
-
-if [ -f "$GITHUB_WORKSPACE/99-default-settings" ]
-then
-
-
-    mkdir -p \
-    package/base-files/files/etc/uci-defaults
-
-
-
-    cp -f \
-    "$GITHUB_WORKSPACE/99-default-settings" \
-    package/base-files/files/etc/uci-defaults/99-default-settings
-
-
-fi
-
-
-
-
-
-
-
-#
-# 清理缓存
-#
-
-echo "===== Clean LuCI cache ====="
-
-
-
-rm -rf /tmp/luci-modulecache || true
-
-rm -f /tmp/luci-indexcache || true
-
-
-
-
-
-
-#
-# 最终检查
-#
-
-echo "===== FINAL CONFIG CHECK ====="
-
-
-
-echo "---- Docker ----"
-
-grep -E '^CONFIG_PACKAGE_(docker|dockerd|docker-compose|luci-app-docker|luci-app-dockerman|containerd|runc)=' "$CONFIG_FILE" || echo "Docker disabled"
-
-
-
-echo "---- Mihomo ----"
-
-grep -E '^CONFIG_PACKAGE_(mihomo|mihomo-alpha|mihomo-meta)=' "$CONFIG_FILE" || echo "Mihomo disabled"
-
-
-
-echo "===== DIY part2 finish ====="
+sed -i 's/192.168.1.1/10.0.0.1/g' package/base-files/files/bin/config_generate
+
+# 修改默认子网掩码
+sed -i 's/255.255.255.0/255.255.252.0/g' package/base-files/files/bin/config_generate
+
+# 修改默认主题
+#sed -i 's/luci-theme-openwrt-2020/luci-theme-alpha/g' feeds/luci/collections/luci/Makefile
+
+# 修改主机名
+sed -i 's/ImmortalWrt/OpenWrt/g' package/base-files/files/bin/config_generate
+
+# 修改Ping 默认网址 immortalwrt.org
+#cat feeds/luci/modules/luci-mod-admin-full/luasrc/view/admin_network/diagnostics.htm
+
+# 修改系统信息
+cp -f $GITHUB_WORKSPACE/99-default-settings package/emortal/default-settings/files/99-default-settings
+cp -f $GITHUB_WORKSPACE/banner package/base-files/files/etc/banner
+
+# 修改主题背景
+cp -f $GITHUB_WORKSPACE/argon/img/bg1.jpg feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/img/bg1.jpg
+cp -f $GITHUB_WORKSPACE/argon/img/argon.svg feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/img/argon.svg
+cp -f $GITHUB_WORKSPACE/argon/favicon.ico feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/favicon.ico
+cp -f $GITHUB_WORKSPACE/argon/icon/android-icon-192x192.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/android-icon-192x192.png
+cp -f $GITHUB_WORKSPACE/argon/icon/apple-icon-144x144.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/apple-icon-144x144.png
+cp -f $GITHUB_WORKSPACE/argon/icon/apple-icon-60x60.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/apple-icon-60x60.png
+cp -f $GITHUB_WORKSPACE/argon/icon/apple-icon-72x72.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/apple-icon-72x72.png
+cp -f $GITHUB_WORKSPACE/argon/icon/favicon-16x16.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/favicon-16x16.png
+cp -f $GITHUB_WORKSPACE/argon/icon/favicon-32x32.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/favicon-32x32.png
+cp -f $GITHUB_WORKSPACE/argon/icon/favicon-96x96.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/favicon-96x96.png
+cp -f $GITHUB_WORKSPACE/argon/icon/ms-icon-144x144.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/ms-icon-144x144.png
+#cp -f $GITHUB_WORKSPACE/argon/favicon.ico package/luci-theme-design/htdocs/luci-static/design/favicon.ico
